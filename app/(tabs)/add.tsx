@@ -165,9 +165,14 @@ export default function AddTransaction() {
       setLocation('');
       
       setTimeout(() => router.replace('/(tabs)'), 1500);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao salvar transação:', error);
-      setSnackbarMessage(t('error'));
+      const errorMsg = error?.code === 'permission-denied' 
+        ? 'Sem permissão para salvar. Verifique as regras do Firestore.'
+        : error?.code === 'unavailable'
+        ? 'Serviço indisponível. Verifique sua conexão.'
+        : error?.message || t('error');
+      setSnackbarMessage(`Erro: ${errorMsg}`);
       setVisible(true);
     } finally {
       setIsSubmitting(false);

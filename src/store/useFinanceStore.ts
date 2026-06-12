@@ -57,7 +57,14 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
     set({ isLoading: true });
     try {
       if (isFirebaseConfigured) {
+        console.log('[FinanceStore] Firebase configurado, tentando criar transação...', {
+          userId: tx.userId,
+          type: tx.type,
+          title: tx.title,
+          amount: tx.amount,
+        });
         const createdTransaction = await firebaseTransactionApi.createTransaction(tx as Omit<StoredTransaction, 'id'>);
+        console.log('[FinanceStore] Transação criada com sucesso:', createdTransaction.id);
         set({ transactions: [createdTransaction as Transaction, ...get().transactions] });
         return Promise.resolve();
       }
@@ -68,8 +75,10 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
       set({ transactions: updated });
       await Storage.setItem('@transactions', JSON.stringify(updated));
       return Promise.resolve();
-    } catch (error) {
-      console.error('Erro ao adicionar transação:', error);
+    } catch (error: any) {
+      console.error('[FinanceStore] Erro ao adicionar transação:', error);
+      console.error('[FinanceStore] Código do erro:', error?.code);
+      console.error('[FinanceStore] Mensagem:', error?.message);
       return Promise.reject(error);
     } finally {
       set({ isLoading: false });

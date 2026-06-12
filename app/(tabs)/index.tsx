@@ -57,9 +57,12 @@ export default function Dashboard() {
   // Hook para verificar a prontidão do PWA
   useEffect(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      // Verifica se já foi dispensado nesta sessão para não irritar o usuário
-      const dismissed = sessionStorage.getItem('pwa-prompt-dismissed');
-      if (dismissed === 'true') return;
+      // Verifica se já foi dispensado (persiste por 7 dias)
+      const dismissedAt = localStorage.getItem('pwa-prompt-dismissed-at');
+      if (dismissedAt) {
+        const daysSinceDismiss = (Date.now() - parseInt(dismissedAt, 10)) / (1000 * 60 * 60 * 24);
+        if (daysSinceDismiss < 7) return;
+      }
 
       const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
       setIsIOS(isIOSDevice);
@@ -96,7 +99,7 @@ export default function Dashboard() {
   const handleClosePwa = () => {
     setPwaModalVisible(false);
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      sessionStorage.setItem('pwa-prompt-dismissed', 'true');
+      localStorage.setItem('pwa-prompt-dismissed-at', Date.now().toString());
     }
   };
   
@@ -455,21 +458,87 @@ export default function Dashboard() {
           <TouchableWithoutFeedback onPress={handleClosePwa}>
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback>
-                <View style={[styles.confirmModal, { backgroundColor: theme.colors.surface }]}>
-                  <View style={styles.confirmModalHeader}>
-                    <Text variant="titleLarge" style={[styles.confirmTitle, { color: theme.colors.onSurface, fontWeight: 'bold' }]}>
+                <View style={[styles.pwaModal, { backgroundColor: theme.colors.surface }]}>
+                  {/* Header */}
+                  <View style={styles.pwaModalHeader}>
+                    <View style={styles.pwaIconContainer}>
+                      <IconButton icon="cellphone-arrow-down" size={32} iconColor={theme.colors.primary} />
+                    </View>
+                    <Text variant="titleLarge" style={[styles.pwaTitle, { color: theme.colors.onSurface }]}>
                       {t('installApp')}
                     </Text>
-                    <IconButton icon="close" size={20} iconColor={theme.colors.outline} onPress={handleClosePwa} />
+                    <IconButton icon="close" size={20} iconColor={theme.colors.outline} onPress={handleClosePwa} style={styles.pwaCloseBtn} />
                   </View>
+
                   <Divider />
-                  <View style={styles.confirmModalBody}>
-                    <IconButton icon="download-network-outline" size={48} iconColor={theme.colors.primary} />
-                    <Text variant="bodyMedium" style={[styles.confirmMessage, { color: theme.colors.onSurfaceVariant, marginTop: 12, textAlign: 'center' }]}>
-                      {isIOS ? t('installIOSMsg') : t('installPromptMsg')}
-                    </Text>
-                  </View>
+
+                  {isIOS ? (
+                    /* Instruções visuais passo a passo para iOS */
+                    <View style={styles.pwaIOSSteps}>
+                      <Text variant="bodyMedium" style={[styles.pwaStepIntro, { color: theme.colors.onSurfaceVariant }]}>
+                        Siga os passos abaixo no Safari:
+                      </Text>
+
+                      {/* Passo 1 */}
+                      <View style={[styles.pwaStep, { backgroundColor: theme.colors.primaryContainer + '40' }]}>
+                        <View style={[styles.pwaStepNumber, { backgroundColor: theme.colors.primary }]}>
+                          <Text style={styles.pwaStepNumberText}>1</Text>
+                        </View>
+                        <View style={styles.pwaStepContent}>
+                          <Text variant="bodyLarge" style={[styles.pwaStepTitle, { color: theme.colors.onSurface }]}>
+                            Toque no botão Compartilhar
+                          </Text>
+                          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                            É o ícone {'\u2B06'} (seta para cima com quadrado) na barra inferior do Safari
+                          </Text>
+                        </View>
+                        <Text style={styles.pwaStepEmoji}>📤</Text>
+                      </View>
+
+                      {/* Passo 2 */}
+                      <View style={[styles.pwaStep, { backgroundColor: theme.colors.primaryContainer + '40' }]}>
+                        <View style={[styles.pwaStepNumber, { backgroundColor: theme.colors.primary }]}>
+                          <Text style={styles.pwaStepNumberText}>2</Text>
+                        </View>
+                        <View style={styles.pwaStepContent}>
+                          <Text variant="bodyLarge" style={[styles.pwaStepTitle, { color: theme.colors.onSurface }]}>
+                            Role para baixo no menu
+                          </Text>
+                          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                            Procure a opção "Adicionar à Tela de Início"
+                          </Text>
+                        </View>
+                        <Text style={styles.pwaStepEmoji}>👆</Text>
+                      </View>
+
+                      {/* Passo 3 */}
+                      <View style={[styles.pwaStep, { backgroundColor: theme.colors.primaryContainer + '40' }]}>
+                        <View style={[styles.pwaStepNumber, { backgroundColor: theme.colors.primary }]}>
+                          <Text style={styles.pwaStepNumberText}>3</Text>
+                        </View>
+                        <View style={styles.pwaStepContent}>
+                          <Text variant="bodyLarge" style={[styles.pwaStepTitle, { color: theme.colors.onSurface }]}>
+                            Toque em "Adicionar"
+                          </Text>
+                          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                            O app aparecerá na sua tela inicial como um app nativo!
+                          </Text>
+                        </View>
+                        <Text style={styles.pwaStepEmoji}>✅</Text>
+                      </View>
+                    </View>
+                  ) : (
+                    /* Android / Chrome */
+                    <View style={styles.confirmModalBody}>
+                      <IconButton icon="google-chrome" size={48} iconColor={theme.colors.primary} />
+                      <Text variant="bodyMedium" style={[styles.confirmMessage, { color: theme.colors.onSurfaceVariant, marginTop: 12, textAlign: 'center' }]}>
+                        {t('installPromptMsg')}
+                      </Text>
+                    </View>
+                  )}
+
                   <Divider />
+
                   <View style={styles.confirmModalFooter}>
                     <PaperButton mode="outlined" onPress={handleClosePwa} style={styles.confirmButton}>
                       {t('maybeLater')}
@@ -495,6 +564,15 @@ export default function Dashboard() {
                         style={[styles.confirmButton, { backgroundColor: theme.colors.primary }]}
                       >
                         {t('install')}
+                      </PaperButton>
+                    )}
+                    {isIOS && (
+                      <PaperButton 
+                        mode="contained" 
+                        onPress={handleClosePwa} 
+                        style={[styles.confirmButton, { backgroundColor: theme.colors.primary }]}
+                      >
+                        Entendi!
                       </PaperButton>
                     )}
                   </View>
@@ -611,4 +689,19 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
+
+  // PWA Modal
+  pwaModal: { width: width * 0.9, maxWidth: 400, borderRadius: 28, overflow: 'hidden', elevation: 5 },
+  pwaModalHeader: { flexDirection: 'row', alignItems: 'center', padding: 18, gap: 8 },
+  pwaIconContainer: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(99,102,241,0.1)', justifyContent: 'center', alignItems: 'center' },
+  pwaTitle: { fontWeight: '700', fontSize: 18, flex: 1 },
+  pwaCloseBtn: { margin: 0 },
+  pwaIOSSteps: { padding: 20, gap: 12 },
+  pwaStepIntro: { fontSize: 14, marginBottom: 4, textAlign: 'center' },
+  pwaStep: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 16, gap: 12 },
+  pwaStepNumber: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+  pwaStepNumberText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  pwaStepContent: { flex: 1 },
+  pwaStepTitle: { fontWeight: '600', fontSize: 15, marginBottom: 2 },
+  pwaStepEmoji: { fontSize: 24 },
 });
