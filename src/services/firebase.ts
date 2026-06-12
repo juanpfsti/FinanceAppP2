@@ -316,8 +316,16 @@ export const firebaseTransactionApi = {
       id: createdDoc.id,
     };
 
+    // Remove campos com valor undefined (Firestore não aceita undefined)
+    const cleanData: Record<string, any> = {};
+    for (const [key, value] of Object.entries(storedTransaction)) {
+      if (value !== undefined) {
+        cleanData[key] = value;
+      }
+    }
+
     await setDoc(createdDoc, {
-      ...storedTransaction,
+      ...cleanData,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -331,10 +339,18 @@ export const firebaseTransactionApi = {
       throw new Error('Firebase Firestore não está configurado');
     }
 
+    // Remove campos com valor undefined (Firestore não aceita undefined)
+    const cleanData: Record<string, any> = {};
+    for (const [key, value] of Object.entries(updatedData)) {
+      if (value !== undefined) {
+        cleanData[key] = value;
+      }
+    }
+
     await setDoc(
       doc(db, 'transactions', transactionId),
       {
-        ...updatedData,
+        ...cleanData,
         updatedAt: serverTimestamp(),
       },
       { merge: true },
