@@ -1,20 +1,23 @@
-const CACHE_NAME = 'finance-app-v1';
-const ASSETS_TO_CACHE = [
+const CACHE_NAME = 'finance-app-v2';
+const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/favicon.ico'
+  '/favicon.ico',
+  '/icon.png',
 ];
 
+// Instala e pré-armazena os assets estáticos essenciais
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+      return cache.addAll(STATIC_ASSETS);
     })
   );
   self.skipWaiting();
 });
 
+// Remove caches antigos ao ativar
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -31,29 +34,69 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Ignora chamadas para o Firebase e outras APIs externas
+  const url = new URL(event.request.url);
+
+  // 1. Ignora completamente chamadas para APIs externas (Firebase, etc.)
   if (
-    event.request.url.includes('firestore.googleapis.com') ||
-    event.request.url.includes('identitytoolkit.googleapis.com') ||
-    event.request.url.includes('securetoken.googleapis.com')
+    url.hostname.includes('firestore.googleapis.com') ||
+    url.hostname.includes('identitytoolkit.googleapis.com') ||
+    url.hostname.includes('securetoken.googleapis.com') ||
+    url.hostname.includes('firebase.googleapis.com') ||
+    url.hostname.includes('googleapis.com') ||
+    url.hostname.includes('firebaseio.com')
   ) {
     return;
   }
 
+  // 2. Para requisições de navegação (HTML / rotas SPA):
+  //    Tenta rede primeiro; se falhar (offline/404), serve index.html do cache
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          // Se a rede retornar sucesso, atualiza cache e retorna
+          if (response && response.status === 200) {
+            const cloned = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, cloned);
+            });
+            return response;
+          }
+          // Se o servidor retornar 404 ou erro, serve index.html (SPA fallback)
+          return caches.match('/index.html');
+        })
+        .catch(() => {
+          // Sem rede — serve index.html do cache para a SPA funcionar offline
+          return caches.match('/index.html');
+        })
+    );
+    return;
+  }
+
+  // 3. Para assets estáticos (JS, CSS, imagens): cache-first
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        // Se for uma resposta básica válida do app, salva em cache
-        if (response && response.status === 200 && response.type === 'basic') {
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-        }
-        return response;
-      })
-      .catch(() => {
-        return caches.match(event.request);
-      })
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+
+      return fetch(event.request)
+        .then((networkResponse) => {
+          if (
+            networkResponse &&
+            networkResponse.status === 200 &&
+            networkResponse.type === 'basic'
+          ) {
+            const cloned = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, cloned);
+            });
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          return cachedResponse || new Response('Offline', { status: 503 });
+        });
+    })
   );
 });
