@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Animated, TouchableOpacity, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Animated, TouchableOpacity, Alert, Platform } from 'react-native';
 import { Button, Text, useTheme, Avatar, Card, Divider, List, IconButton } from 'react-native-paper';
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { useRouter } from 'expo-router';
@@ -27,10 +27,19 @@ export default function Profile() {
 
   const handleLogout = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert('Sair', 'Tem certeza que deseja sair?', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Sair', style: 'destructive', onPress: async () => { await logout(); router.replace('/(auth)/login'); } }
-    ]);
+    if (Platform.OS === 'web') {
+      const confirmLogout = window.confirm('Tem certeza que deseja sair?');
+      if (confirmLogout) {
+        void logout().then(() => {
+          router.replace('/(auth)/login');
+        });
+      }
+    } else {
+      Alert.alert('Sair', 'Tem certeza que deseja sair?', [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Sair', style: 'destructive', onPress: async () => { await logout(); router.replace('/(auth)/login'); } }
+      ]);
+    }
   };
 
   const handleAdminPanel = () => {
