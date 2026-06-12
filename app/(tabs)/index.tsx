@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, View, StyleSheet, RefreshControl, TouchableOpacity, Modal as RNModal, TouchableWithoutFeedback, Dimensions, Animated, Alert } from 'react-native';
+import { ScrollView, View, StyleSheet, RefreshControl, TouchableOpacity, Modal as RNModal, TouchableWithoutFeedback, Dimensions, Animated, Alert, Platform } from 'react-native';
 import { Text, Card, useTheme, IconButton, Chip, ActivityIndicator, Button as PaperButton, Divider } from 'react-native-paper';
 import { useFinanceStore } from '../../src/store/useFinanceStore';
 import { useAuthStore } from '../../src/store/useAuthStore';
@@ -9,13 +9,16 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EditTransactionModal from '../../src/components/EditTransactionModal';
+import PlanningModal from '../../src/components/PlanningModal';
+import { useTranslation } from '../../src/utils/i18n';
 
 const { width } = Dimensions.get('window');
 
-const formatCurrency = (value: number): string => {
-  return value.toLocaleString('pt-BR', {
+const formatCurrency = (value: number, currencyCode: string = 'BRL'): string => {
+  const locale = currencyCode === 'USD' ? 'en-US' : 'pt-BR';
+  return value.toLocaleString(locale, {
     style: 'currency',
-    currency: 'BRL',
+    currency: currencyCode,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -33,6 +36,7 @@ const formatDate = (dateString: string): string => {
 export default function Dashboard() {
   const { transactions, loadTransactions, updateTransaction, deleteTransaction, isLoading } = useFinanceStore();
   const user = useAuthStore((state) => state.user);
+  const { t } = useTranslation();
   
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -44,6 +48,57 @@ export default function Dashboard() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [actionModalVisible, setActionModalVisible] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [planningModalVisible, setPlanningModalVisible] = useState(false);
+  
+  // Estados para PWA
+  const [pwaModalVisible, setPwaModalVisible] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+
+  // Hook para verificar a prontidão do PWA
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      // Verifica se já foi dispensado nesta sessão para não irritar o usuário
+      const dismissed = sessionStorage.getItem('pwa-prompt-dismissed');
+      if (dismissed === 'true') return;
+
+      const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+      setIsIOS(isIOSDevice);
+
+      // Verifica se já está instalado (standalone)
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
+      
+      if (!isStandalone) {
+        if (isIOSDevice) {
+          // No iOS exibe as instruções depois de 3 segundos
+          const timer = setTimeout(() => {
+            setPwaModalVisible(true);
+          }, 3000);
+          return () => clearTimeout(timer);
+        } else {
+          // No Android/Chromium verifica periodicamente se o banner está pronto
+          const checkPrompt = setInterval(() => {
+            if ((window as any).deferredPrompt) {
+              setPwaModalVisible(true);
+              clearInterval(checkPrompt);
+            }
+          }, 1000);
+          
+          const maxTimer = setTimeout(() => clearInterval(checkPrompt), 12000);
+          return () => {
+            clearInterval(checkPrompt);
+            clearTimeout(maxTimer);
+          };
+        }
+      }
+    }
+  }, [user]);
+
+  const handleClosePwa = () => {
+    setPwaModalVisible(false);
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      sessionStorage.setItem('pwa-prompt-dismissed', 'true');
+    }
+  };
   
   // Animações dos modais
   const actionModalAnim = useState(new Animated.Value(0))[0];
@@ -74,11 +129,44 @@ export default function Dashboard() {
 
   const fetchWeather = async () => {
     try {
+      if (Platform.OS === 'web') {
+        if (typeof navigator !== 'undefined' && navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            async (position) => {
+              try {
+                const weatherData = await WeatherService.getWeather(position.coords.latitude, position.coords.longitude);
+                if (weatherData?.weather) setWeather(weatherData);
+              } catch (e) {
+                console.log('Erro ao buscar clima (fetch):', e);
+              }
+            },
+            (err) => {
+              console.log('Erro de geolocalização web:', err.message);
+            },
+            { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+          );
+        }
+        return;
+      }
+
+      // Plataformas nativas (iOS/Android)
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
-      const location = await Location.getCurrentPositionAsync({});
-      const weatherData = await WeatherService.getWeather(location.coords.latitude, location.coords.longitude);
-      if (weatherData?.weather) setWeather(weatherData);
+      
+      const lastKnown = await Location.getLastKnownPositionAsync({});
+      let coords = lastKnown?.coords;
+      
+      if (!coords) {
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        coords = location.coords;
+      }
+      
+      if (coords) {
+        const weatherData = await WeatherService.getWeather(coords.latitude, coords.longitude);
+        if (weatherData?.weather) setWeather(weatherData);
+      }
     } catch (error) {
       console.log('Erro ao buscar clima:', error);
     }
@@ -182,189 +270,252 @@ export default function Dashboard() {
       style={[styles.container, { backgroundColor: theme.colors.background }]}
       contentContainerStyle={{ paddingTop: insets.top, paddingBottom: insets.bottom + 80 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} tintColor={theme.colors.primary} />}
-      showsVerticalScrollIndicator={false}
+      showsVerticalScrollIndicator={Platform.OS === 'web'}
     >
-      {/* Cabeçalho */}
-      <View style={styles.header}>
-        <View>
-          <Text variant="bodyMedium" style={[styles.welcomeText, { color: theme.colors.onSurfaceVariant }]}>
-            Bem-vindo de volta
-          </Text>
-          <Text variant="headlineMedium" style={[styles.userName, { color: theme.colors.onSurface }]}>
-            {user?.name?.split(' ')[0] || 'Usuário'}
-          </Text>
+      <View style={styles.responsiveWrapper}>
+        {/* Cabeçalho */}
+        <View style={styles.header}>
+          <View>
+            <Text variant="bodyMedium" style={[styles.welcomeText, { color: theme.colors.onSurfaceVariant }]}>
+              {t('welcome')}
+            </Text>
+            <Text variant="headlineMedium" style={[styles.userName, { color: theme.colors.onSurface }]}>
+              {user?.name?.split(' ')[0] || (user?.language === 'en' ? 'User' : 'Usuário')}
+            </Text>
+          </View>
+          <IconButton icon="bell-outline" size={24} iconColor={theme.colors.primary} onPress={() => {}} />
         </View>
-        <IconButton icon="bell-outline" size={24} iconColor={theme.colors.primary} onPress={() => {}} />
-      </View>
 
-      {/* Card do Clima */}
-      {weather?.weather?.[0] && (
-        <TouchableOpacity onPress={fetchWeather} activeOpacity={0.7}>
-          <Card style={[styles.weatherCard, { backgroundColor: theme.colors.surfaceVariant }]}>
-            <Card.Content style={styles.weatherContent}>
-              <View style={styles.weatherLeft}>
-                <IconButton icon={getWeatherIcon(weather.weather[0].main)} size={28} iconColor={theme.colors.primary} />
-                <View>
-                  <Text variant="bodyLarge" style={styles.weatherTemp}>{weather.weather[0].description}</Text>
-                  <Text variant="bodySmall" style={[styles.weatherFeels, { color: theme.colors.onSurfaceVariant }]}>
-                    {weather.main?.temp}°C • Sensação {weather.main?.feels_like}°C
-                  </Text>
-                </View>
-              </View>
-              <Text variant="headlineSmall" style={styles.weatherTempNumber}>{Math.round(weather.main?.temp)}°</Text>
-            </Card.Content>
-          </Card>
-        </TouchableOpacity>
-      )}
-
-      {/* Stats Container */}
-      <View style={styles.statsContainer}>
-        <Card style={[styles.statsCard, { backgroundColor: '#10b981' }]}>
-          <Card.Content style={styles.statsCardContent}>
-            <Text variant="bodyMedium" style={styles.statsLabel}>Receitas</Text>
-            <Text variant="headlineMedium" style={styles.statsValue}>{formatCurrency(totalIncome)}</Text>
-          </Card.Content>
-        </Card>
-        <Card style={[styles.statsCard, { backgroundColor: '#ef4444' }]}>
-          <Card.Content style={styles.statsCardContent}>
-            <Text variant="bodyMedium" style={styles.statsLabel}>Despesas</Text>
-            <Text variant="headlineMedium" style={styles.statsValue}>{formatCurrency(totalExpenses)}</Text>
-          </Card.Content>
-        </Card>
-      </View>
-
-      {/* Balance Card */}
-      <Card style={[styles.balanceCard, { backgroundColor: theme.colors.primary }]}>
-        <LinearGradient colors={[theme.colors.primary, theme.colors.primary + 'CC']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.balanceGradient}>
-          <Card.Content style={styles.balanceContent}>
-            <Text variant="bodyMedium" style={styles.balanceLabel}>Saldo Atual</Text>
-            <Text variant="displaySmall" style={styles.balanceAmount}>{formatCurrency(balance)}</Text>
-            <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
-              <IconButton icon="refresh" size={20} iconColor="#fff" />
-              <Text variant="bodySmall" style={styles.balanceUpdateText}>Atualizado agora</Text>
-            </TouchableOpacity>
-          </Card.Content>
-        </LinearGradient>
-      </Card>
-
-      {/* Transactions Section */}
-      <View style={styles.sectionHeader}>
-        <Text variant="titleLarge" style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>Últimas Transações</Text>
-        <TouchableOpacity>
-          <Text variant="labelMedium" style={[styles.viewAllText, { color: theme.colors.primary }]}>Ver todas →</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Filter Chips */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterBar}>
-        <Chip selected={selectedPeriod === 'today'} onPress={() => setSelectedPeriod('today')} style={styles.filterChip} showSelectedOverlay>Hoje</Chip>
-        <Chip selected={selectedPeriod === 'week'} onPress={() => setSelectedPeriod('week')} style={styles.filterChip} showSelectedOverlay>Esta Semana</Chip>
-        <Chip selected={selectedPeriod === 'month'} onPress={() => setSelectedPeriod('month')} style={styles.filterChip} showSelectedOverlay>Este Mês</Chip>
-      </ScrollView>
-
-      {/* Transactions List */}
-      {recentTransactions.length === 0 ? (
-        <Card style={[styles.emptyCard, { backgroundColor: theme.colors.surfaceVariant }]}>
-          <Card.Content style={styles.emptyContent}>
-            <IconButton icon="receipt" size={48} iconColor={theme.colors.outline} />
-            <Text variant="bodyLarge" style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>Nenhuma transação encontrada</Text>
-            <Text variant="bodySmall" style={[styles.emptySubtext, { color: theme.colors.outline }]}>Adicione sua primeira transação clicando em "Novo"</Text>
-          </Card.Content>
-        </Card>
-      ) : (
-        recentTransactions.map((tx) => (
-          <TouchableOpacity key={tx.id} onPress={() => openActionModal(tx)} activeOpacity={0.7}>
-            <Card style={[styles.transactionCard, { backgroundColor: theme.colors.surface }]}>
-              <Card.Content style={styles.transactionContent}>
-                <View style={styles.transactionLeft}>
-                  <View style={[styles.transactionIcon, { backgroundColor: tx.type === 'receita' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' }]}>
-                    <IconButton icon={tx.type === 'receita' ? 'arrow-up' : 'arrow-down'} size={20} iconColor={tx.type === 'receita' ? '#10b981' : '#ef4444'} />
-                  </View>
+        {/* Card do Clima */}
+        {weather?.weather?.[0] && (
+          <TouchableOpacity onPress={fetchWeather} activeOpacity={0.7}>
+            <Card style={[styles.weatherCard, { backgroundColor: theme.colors.surfaceVariant }]}>
+              <Card.Content style={styles.weatherContent}>
+                <View style={styles.weatherLeft}>
+                  <IconButton icon={getWeatherIcon(weather.weather[0].main)} size={28} iconColor={theme.colors.primary} />
                   <View>
-                    <Text variant="titleMedium" style={[styles.transactionTitle, { color: theme.colors.onSurface }]}>{tx.title}</Text>
-                    <Text variant="bodySmall" style={[styles.transactionCategory, { color: theme.colors.onSurfaceVariant }]}>{tx.category}</Text>
+                    <Text variant="bodyLarge" style={styles.weatherTemp}>{weather.weather[0].description}</Text>
+                    <Text variant="bodySmall" style={[styles.weatherFeels, { color: theme.colors.onSurfaceVariant }]}>
+                      {weather.main?.temp}°C • Sensação {weather.main?.feels_like}°C
+                    </Text>
                   </View>
                 </View>
-                <Text variant="titleMedium" style={[styles.transactionAmount, { color: tx.type === 'receita' ? '#10b981' : '#ef4444' }]}>
-                  {tx.type === 'receita' ? '+' : '-'} {formatCurrency(Number(tx.amount || 0))}
-                </Text>
+                <Text variant="headlineSmall" style={styles.weatherTempNumber}>{Math.round(weather.main?.temp)}°</Text>
               </Card.Content>
             </Card>
           </TouchableOpacity>
-        ))
-      )}
+        )}
 
-      <View style={{ height: 40 }} />
+        {/* Stats Container */}
+        <View style={styles.statsContainer}>
+          <Card style={[styles.statsCard, { backgroundColor: '#10b981' }]}>
+            <Card.Content style={styles.statsCardContent}>
+              <Text variant="bodyMedium" style={styles.statsLabel}>{t('income')}</Text>
+              <Text variant="headlineMedium" style={styles.statsValue}>{formatCurrency(totalIncome, user?.currency)}</Text>
+            </Card.Content>
+          </Card>
+          <Card style={[styles.statsCard, { backgroundColor: '#ef4444' }]}>
+            <Card.Content style={styles.statsCardContent}>
+              <Text variant="bodyMedium" style={styles.statsLabel}>{t('expenses')}</Text>
+              <Text variant="headlineMedium" style={styles.statsValue}>{formatCurrency(totalExpenses, user?.currency)}</Text>
+            </Card.Content>
+          </Card>
+        </View>
 
-      {/* Action Modal */}
-      <RNModal visible={actionModalVisible} transparent animationType="none" onRequestClose={closeActionModal}>
-        <TouchableWithoutFeedback onPress={closeActionModal}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <Animated.View style={[styles.actionModal, { backgroundColor: theme.colors.surface, transform: [{ scale: actionModalAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }] }]}>
-                <View style={styles.actionModalHeader}>
-                  <View style={[styles.actionTypeBadge, { backgroundColor: selectedTransaction?.type === 'receita' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' }]}>
-                    <Text style={[styles.actionTypeText, { color: selectedTransaction?.type === 'receita' ? '#10b981' : '#ef4444' }]}>
-                      {selectedTransaction?.type === 'receita' ? 'RECEITA' : 'DESPESA'}
-                    </Text>
+        {/* Balance Card */}
+        <Card style={[styles.balanceCard, { backgroundColor: theme.colors.primary }]}>
+          <LinearGradient colors={[theme.colors.primary, theme.colors.primary + 'CC']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.balanceGradient}>
+            <Card.Content style={styles.balanceContent}>
+              <Text variant="bodyMedium" style={styles.balanceLabel}>{t('balance')}</Text>
+              <Text variant="displaySmall" style={styles.balanceAmount}>{formatCurrency(balance, user?.currency)}</Text>
+              <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
+                <IconButton icon="refresh" size={20} iconColor="#fff" />
+                <Text variant="bodySmall" style={styles.balanceUpdateText}>{t('updatedNow')}</Text>
+              </TouchableOpacity>
+            </Card.Content>
+          </LinearGradient>
+        </Card>
+
+        {/* Transactions Section */}
+        <View style={styles.sectionHeader}>
+          <Text variant="titleLarge" style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>{t('recentTransactions')}</Text>
+          <TouchableOpacity onPress={() => setPlanningModalVisible(true)}>
+            <Text variant="labelMedium" style={[styles.viewAllText, { color: theme.colors.primary }]}>{t('viewAll')}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Filter Chips */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterBar}>
+          <Chip selected={selectedPeriod === 'today'} onPress={() => setSelectedPeriod('today')} style={styles.filterChip} showSelectedOverlay>{t('today')}</Chip>
+          <Chip selected={selectedPeriod === 'week'} onPress={() => setSelectedPeriod('week')} style={styles.filterChip} showSelectedOverlay>{t('week')}</Chip>
+          <Chip selected={selectedPeriod === 'month'} onPress={() => setSelectedPeriod('month')} style={styles.filterChip} showSelectedOverlay>{t('month')}</Chip>
+        </ScrollView>
+
+        {/* Transactions List */}
+        {recentTransactions.length === 0 ? (
+          <Card style={[styles.emptyCard, { backgroundColor: theme.colors.surfaceVariant }]}>
+            <Card.Content style={styles.emptyContent}>
+              <IconButton icon="receipt" size={48} iconColor={theme.colors.outline} />
+              <Text variant="bodyLarge" style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>{t('noTransactions')}</Text>
+              <Text variant="bodySmall" style={[styles.emptySubtext, { color: theme.colors.outline }]}>{t('addFirst')}</Text>
+            </Card.Content>
+          </Card>
+        ) : (
+          recentTransactions.map((tx) => (
+            <TouchableOpacity key={tx.id} onPress={() => openActionModal(tx)} activeOpacity={0.7}>
+              <Card style={[styles.transactionCard, { backgroundColor: theme.colors.surface }]}>
+                <Card.Content style={styles.transactionContent}>
+                  <View style={styles.transactionLeft}>
+                    <View style={[styles.transactionIcon, { backgroundColor: tx.type === 'receita' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' }]}>
+                      <IconButton icon={tx.type === 'receita' ? 'arrow-up' : 'arrow-down'} size={20} iconColor={tx.type === 'receita' ? '#10b981' : '#ef4444'} />
+                    </View>
+                    <View>
+                      <Text variant="titleMedium" style={[styles.transactionTitle, { color: theme.colors.onSurface }]}>{tx.title}</Text>
+                      <Text variant="bodySmall" style={[styles.transactionCategory, { color: theme.colors.onSurfaceVariant }]}>{tx.category}</Text>
+                    </View>
                   </View>
-                  <IconButton icon="close" size={20} iconColor={theme.colors.outline} onPress={closeActionModal} />
-                </View>
-                <Divider />
-                <View style={styles.actionModalBody}>
-                  <Text variant="titleLarge" style={[styles.actionModalTitle, { color: theme.colors.onSurface }]}>{selectedTransaction?.title}</Text>
-                  <Text variant="displaySmall" style={[styles.actionModalAmount, { color: selectedTransaction?.type === 'receita' ? '#10b981' : '#ef4444' }]}>
-                    {formatCurrency(selectedTransaction?.amount || 0)}
+                  <Text variant="titleMedium" style={[styles.transactionAmount, { color: tx.type === 'receita' ? '#10b981' : '#ef4444' }]}>
+                    {tx.type === 'receita' ? '+' : '-'} {formatCurrency(Number(tx.amount || 0), user?.currency)}
                   </Text>
-                  {selectedTransaction?.type === 'despesa' && (
-                    <Text variant="bodyMedium" style={[styles.actionModalCategory, { color: theme.colors.onSurfaceVariant }]}>Categoria: {selectedTransaction?.category}</Text>
-                  )}
-                  <Text variant="bodySmall" style={[styles.actionModalDate, { color: theme.colors.outline }]}>{formatDate(selectedTransaction?.date || new Date().toISOString())}</Text>
-                </View>
-                <Divider />
-                <View style={styles.actionModalFooter}>
-                  <PaperButton mode="contained" onPress={handleEdit} icon="pencil" style={[styles.actionButton, { backgroundColor: theme.colors.primary }]} labelStyle={styles.actionButtonLabel}>Editar</PaperButton>
-                  <PaperButton mode="outlined" onPress={handleDelete} icon="delete" style={[styles.actionButton, { borderColor: theme.colors.error }]} labelStyle={{ color: theme.colors.error }}>Excluir</PaperButton>
-                </View>
-              </Animated.View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </RNModal>
+                </Card.Content>
+              </Card>
+            </TouchableOpacity>
+          ))
+        )}
 
-      {/* Delete Confirmation Modal */}
-      <RNModal visible={deleteModalVisible} transparent animationType="none" onRequestClose={() => setDeleteModalVisible(false)}>
-        <TouchableWithoutFeedback onPress={() => setDeleteModalVisible(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <Animated.View style={[styles.confirmModal, { backgroundColor: theme.colors.surface, transform: [{ scale: deleteModalAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }] }]}>
-                <View style={styles.confirmModalHeader}>
-                  <Text variant="titleLarge" style={[styles.confirmTitle, { color: theme.colors.onSurface }]}>Confirmar Exclusão</Text>
-                  <IconButton icon="close" size={20} iconColor={theme.colors.outline} onPress={() => setDeleteModalVisible(false)} />
-                </View>
-                <Divider />
-                <View style={styles.confirmModalBody}>
-                  <Text variant="bodyMedium" style={[styles.confirmMessage, { color: theme.colors.onSurfaceVariant }]}>Tem certeza que deseja excluir este lançamento?</Text>
-                  <View style={[styles.confirmTransactionInfo, { backgroundColor: theme.colors.surfaceVariant }]}>
-                    <Text variant="titleMedium" style={[styles.confirmTransactionTitle, { color: theme.colors.onSurface }]}>{selectedTransaction?.title}</Text>
-                    <Text variant="bodyLarge" style={[styles.confirmTransactionAmount, { color: selectedTransaction?.type === 'receita' ? '#10b981' : '#ef4444' }]}>
-                      {formatCurrency(selectedTransaction?.amount || 0)}
+        <View style={{ height: 40 }} />
+
+        {/* Action Modal */}
+        <RNModal visible={actionModalVisible} transparent animationType="none" onRequestClose={closeActionModal}>
+          <TouchableWithoutFeedback onPress={closeActionModal}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <Animated.View style={[styles.actionModal, { backgroundColor: theme.colors.surface, transform: [{ scale: actionModalAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }] }]}>
+                  <View style={styles.actionModalHeader}>
+                    <View style={[styles.actionTypeBadge, { backgroundColor: selectedTransaction?.type === 'receita' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' }]}>
+                      <Text style={[styles.actionTypeText, { color: selectedTransaction?.type === 'receita' ? '#10b981' : '#ef4444' }]}>
+                        {selectedTransaction?.type === 'receita' ? t('income').toUpperCase() : t('expenses').toUpperCase()}
+                      </Text>
+                    </View>
+                    <IconButton icon="close" size={20} iconColor={theme.colors.outline} onPress={closeActionModal} />
+                  </View>
+                  <Divider />
+                  <View style={styles.actionModalBody}>
+                    <Text variant="titleLarge" style={[styles.actionModalTitle, { color: theme.colors.onSurface }]}>{selectedTransaction?.title}</Text>
+                    <Text variant="displaySmall" style={[styles.actionModalAmount, { color: selectedTransaction?.type === 'receita' ? '#10b981' : '#ef4444' }]}>
+                      {formatCurrency(selectedTransaction?.amount || 0, user?.currency)}
+                    </Text>
+                    <Text variant="bodyMedium" style={[styles.actionModalCategory, { color: theme.colors.onSurfaceVariant }]}>{t('categoryInput')}: {selectedTransaction?.category}</Text>
+                    <Text variant="bodySmall" style={[styles.actionModalDate, { color: theme.colors.outline }]}>{formatDate(selectedTransaction?.date || new Date().toISOString())}</Text>
+                  </View>
+                  <Divider />
+                  <View style={styles.actionModalFooter}>
+                    <PaperButton mode="contained" onPress={handleEdit} icon="pencil" style={[styles.actionButton, { backgroundColor: theme.colors.primary }]} labelStyle={styles.actionButtonLabel}>{t('edit')}</PaperButton>
+                    <PaperButton mode="outlined" onPress={handleDelete} icon="delete" style={[styles.actionButton, { borderColor: theme.colors.error }]} labelStyle={{ color: theme.colors.error }}>{t('delete')}</PaperButton>
+                  </View>
+                </Animated.View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </RNModal>
+
+        {/* Delete Confirmation Modal */}
+        <RNModal visible={deleteModalVisible} transparent animationType="none" onRequestClose={() => setDeleteModalVisible(false)}>
+          <TouchableWithoutFeedback onPress={() => setDeleteModalVisible(false)}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <Animated.View style={[styles.confirmModal, { backgroundColor: theme.colors.surface, transform: [{ scale: deleteModalAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }] }]}>
+                  <View style={styles.confirmModalHeader}>
+                    <Text variant="titleLarge" style={[styles.confirmTitle, { color: theme.colors.onSurface }]}>{t('confirmTitle')}</Text>
+                    <IconButton icon="close" size={20} iconColor={theme.colors.outline} onPress={() => setDeleteModalVisible(false)} />
+                  </View>
+                  <Divider />
+                  <View style={styles.confirmModalBody}>
+                    <Text variant="bodyMedium" style={[styles.confirmMessage, { color: theme.colors.onSurfaceVariant }]}>{t('confirmDeleteMsg')}</Text>
+                    <View style={[styles.confirmTransactionInfo, { backgroundColor: theme.colors.surfaceVariant }]}>
+                      <Text variant="titleMedium" style={[styles.confirmTransactionTitle, { color: theme.colors.onSurface }]}>{selectedTransaction?.title}</Text>
+                      <Text variant="bodyLarge" style={[styles.confirmTransactionAmount, { color: selectedTransaction?.type === 'receita' ? '#10b981' : '#ef4444' }]}>
+                        {formatCurrency(selectedTransaction?.amount || 0, user?.currency)}
+                      </Text>
+                    </View>
+                  </View>
+                  <Divider />
+                  <View style={styles.confirmModalFooter}>
+                    <PaperButton mode="outlined" onPress={() => setDeleteModalVisible(false)} style={styles.confirmButton}>{t('cancel')}</PaperButton>
+                    <PaperButton mode="contained" onPress={confirmDelete} style={[styles.confirmButton, styles.deleteButton]}>{t('delete')}</PaperButton>
+                  </View>
+                </Animated.View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </RNModal>
+
+        {/* PWA Install Prompt Modal */}
+        <RNModal visible={pwaModalVisible} transparent animationType="fade" onRequestClose={handleClosePwa}>
+          <TouchableWithoutFeedback onPress={handleClosePwa}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={[styles.confirmModal, { backgroundColor: theme.colors.surface }]}>
+                  <View style={styles.confirmModalHeader}>
+                    <Text variant="titleLarge" style={[styles.confirmTitle, { color: theme.colors.onSurface, fontWeight: 'bold' }]}>
+                      {t('installApp')}
+                    </Text>
+                    <IconButton icon="close" size={20} iconColor={theme.colors.outline} onPress={handleClosePwa} />
+                  </View>
+                  <Divider />
+                  <View style={styles.confirmModalBody}>
+                    <IconButton icon="download-network-outline" size={48} iconColor={theme.colors.primary} />
+                    <Text variant="bodyMedium" style={[styles.confirmMessage, { color: theme.colors.onSurfaceVariant, marginTop: 12, textAlign: 'center' }]}>
+                      {isIOS ? t('installIOSMsg') : t('installPromptMsg')}
                     </Text>
                   </View>
+                  <Divider />
+                  <View style={styles.confirmModalFooter}>
+                    <PaperButton mode="outlined" onPress={handleClosePwa} style={styles.confirmButton}>
+                      {t('maybeLater')}
+                    </PaperButton>
+                    {!isIOS && (
+                      <PaperButton 
+                        mode="contained" 
+                        onPress={() => {
+                          const promptEvent = (window as any).deferredPrompt;
+                          if (promptEvent) {
+                            promptEvent.prompt();
+                            promptEvent.userChoice.then((choiceResult: any) => {
+                              if (choiceResult.outcome === 'accepted') {
+                                console.log('User accepted the PWA install prompt');
+                              }
+                              (window as any).deferredPrompt = null;
+                              handleClosePwa();
+                            });
+                          } else {
+                            Alert.alert(t('installApp'), user?.language === 'en' ? 'The installer is not ready yet or the app is already installed.' : 'O instalador ainda não está pronto ou o aplicativo já foi instalado.');
+                          }
+                        }} 
+                        style={[styles.confirmButton, { backgroundColor: theme.colors.primary }]}
+                      >
+                        {t('install')}
+                      </PaperButton>
+                    )}
+                  </View>
                 </View>
-                <Divider />
-                <View style={styles.confirmModalFooter}>
-                  <PaperButton mode="outlined" onPress={() => setDeleteModalVisible(false)} style={styles.confirmButton}>Cancelar</PaperButton>
-                  <PaperButton mode="contained" onPress={confirmDelete} style={[styles.confirmButton, styles.deleteButton]}>Excluir</PaperButton>
-                </View>
-              </Animated.View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </RNModal>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </RNModal>
 
-      {/* Edit Modal */}
-      <EditTransactionModal visible={editModalVisible} transaction={selectedTransaction} onClose={() => { setEditModalVisible(false); setSelectedTransaction(null); }} onSave={handleSaveEdit} />
+        {/* Edit Modal */}
+        <EditTransactionModal visible={editModalVisible} transaction={selectedTransaction} onClose={() => { setEditModalVisible(false); setSelectedTransaction(null); }} onSave={handleSaveEdit} />
+
+        {/* Planning Modal */}
+        <PlanningModal 
+          visible={planningModalVisible} 
+          onClose={() => setPlanningModalVisible(false)} 
+          transactions={transactions} 
+          currentBalance={balance} 
+          currency={user?.currency || 'BRL'} 
+        />
+      </View>
     </ScrollView>
   );
 }
@@ -455,4 +606,9 @@ const styles = StyleSheet.create({
   confirmModalFooter: { flexDirection: 'row', gap: 12, padding: 18 },
   confirmButton: { flex: 1, borderRadius: 14, paddingVertical: 4 },
   deleteButton: { backgroundColor: '#ef4444' },
+  responsiveWrapper: {
+    maxWidth: Platform.OS === 'web' ? 600 : '100%',
+    width: '100%',
+    alignSelf: 'center',
+  },
 });

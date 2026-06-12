@@ -17,6 +17,12 @@ export interface User {
   name: string;
   role: Role;
   photoUrl?: string;
+  customCategories?: string[];
+  pushNotifications?: boolean;
+  weeklySummaries?: boolean;
+  expenseAlerts?: boolean;
+  language?: string;
+  currency?: string;
 }
 
 interface AuthState {
@@ -27,6 +33,9 @@ interface AuthState {
   logout: () => Promise<void>;
   checkSession: () => Promise<void>;
   updateProfile: (updatedData: Partial<User>) => Promise<void>;
+  addCustomCategory: (categoryName: string) => Promise<void>;
+  updatePassword: (newPassword: string) => Promise<void>;
+  deleteAccount: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -97,6 +106,38 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } else {
       await Storage.setItem('@session', JSON.stringify(newUser));
     }
+  },
+
+  addCustomCategory: async (categoryName) => {
+    const currentUser = get().user;
+    if (!currentUser) return;
+
+    const currentCategories = currentUser.customCategories || [];
+    if (currentCategories.includes(categoryName)) return;
+
+    const updatedCategories = [...currentCategories, categoryName];
+    await get().updateProfile({ customCategories: updatedCategories });
+  },
+
+  updatePassword: async (newPassword) => {
+    const currentUser = get().user;
+    if (!currentUser) return;
+    if (isFirebaseConfigured) {
+      const { updateFirebaseUserPassword } = await import('../services/firebase');
+      await updateFirebaseUserPassword(newPassword);
+    }
+  },
+
+  deleteAccount: async () => {
+    const currentUser = get().user;
+    if (!currentUser) return;
+    if (isFirebaseConfigured) {
+      const { deleteFirebaseUser } = await import('../services/firebase');
+      await deleteFirebaseUser(currentUser.id);
+    } else {
+      await Storage.removeItem('@session');
+    }
+    set({ user: null });
   },
 
   logout: async () => {

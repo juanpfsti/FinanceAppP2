@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Modal, TouchableOpacity, ScrollView, Platform, KeyboardAvoidingView } from 'react-native';
-import { Text, TextInput, Button, SegmentedButtons, useTheme, IconButton, ActivityIndicator } from 'react-native-paper';
+import { View, StyleSheet, Modal, TouchableOpacity, ScrollView, Platform, KeyboardAvoidingView, TouchableWithoutFeedback, Alert } from 'react-native';
+import { Text, TextInput, Button, SegmentedButtons, useTheme, IconButton, Divider } from 'react-native-paper';
 import * as Haptics from 'expo-haptics';
+import { useAuthStore } from '../store/useAuthStore';
 
 interface Transaction {
   id: string;
@@ -22,61 +23,63 @@ interface EditTransactionModalProps {
   onSave: (id: string, updatedData: Partial<Transaction>) => Promise<void>;
 }
 
-// Função para formatar número para exibição (mantém os zeros corretamente)
-const formatAmountForDisplay = (amount: number): string => {
-  // Garante que o valor seja tratado como número com 2 casas decimais
-  return amount.toLocaleString('pt-BR', {
+// Função para formatar número para exibição
+const formatAmountForDisplay = (amount: number, currency: string = 'BRL'): string => {
+  const locale = currency === 'USD' ? 'en-US' : 'pt-BR';
+  return amount.toLocaleString(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 };
 
-// Função para converter string digitada para número (preserva os centavos)
-const parseInputToNumber = (input: string): number => {
-  // Remove tudo que não for número ou vírgula
-  let cleaned = input.replace(/[^0-9,]/g, '');
-  
-  // Substitui vírgula por ponto para conversão
-  cleaned = cleaned.replace(',', '.');
-  
-  // Converte para número
-  let number = parseFloat(cleaned);
-  
-  // Se for inválido, retorna 0
-  if (isNaN(number)) return 0;
-  
-  return number;
+// Função para converter string digitada para número
+const parseInputToNumber = (input: string, currency: string = 'BRL'): number => {
+  if (currency === 'USD') {
+    let cleaned = input.replace(/[^0-9.]/g, '');
+    let number = parseFloat(cleaned);
+    return isNaN(number) ? 0 : number;
+  } else {
+    let cleaned = input.replace(/[^0-9,]/g, '').replace(',', '.');
+    let number = parseFloat(cleaned);
+    return isNaN(number) ? 0 : number;
+  }
 };
 
 export default function EditTransactionModal({ visible, transaction, onClose, onSave }: EditTransactionModalProps) {
   const theme = useTheme();
+  const { user, addCustomCategory } = useAuthStore();
+
   const [type, setType] = useState<'receita' | 'despesa'>('despesa');
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   const [date, setDate] = useState('');
+  const [location, setLocation] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Estados do Modal de Categoria
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
+  const [newCustomCategory, setNewCustomCategory] = useState('');
 
   useEffect(() => {
     if (transaction && visible) {
       setType(transaction.type);
       setTitle(transaction.title);
-      // CORREÇÃO: Usa o valor numérico diretamente sem conversão errada
-      const formattedAmount = formatAmountForDisplay(transaction.amount);
-      setAmount(formattedAmount);
+      setAmount(formatAmountForDisplay(transaction.amount, user?.currency));
       setCategory(transaction.category);
       setDate(transaction.date.split('T')[0]);
+      setLocation(transaction.location || '');
     }
-  }, [transaction, visible]);
+  }, [transaction, visible, user]);
 
   const handleAmountChange = (text: string) => {
-    // Permite apenas números e vírgula
-    const cleaned = text.replace(/[^0-9,]/g, '');
+    const isUSD = user?.currency === 'USD';
+    const regex = isUSD ? /[^0-9.]/g : /[^0-9,]/g;
+    const separator = isUSD ? '.' : ',';
     
-    // Impede múltiplas vírgulas
-    const commaCount = (cleaned.match(/,/g) || []).length;
-    if (commaCount > 1) return;
-    
+    const cleaned = text.replace(regex, '');
+    const count = (cleaned.match(new RegExp(`\\${separator}`, 'g')) || []).length;
+    if (count > 1) return;
     setAmount(cleaned);
   };
 
@@ -84,40 +87,70 @@ export default function EditTransactionModal({ visible, transaction, onClose, on
     if (!transaction) return;
     
     if (!title.trim()) {
-      alert('Digite um título');
+      Alert.alert('Erro', 'Por favor, digite um título.');
       return;
     }
     
-    // CORREÇÃO: Converte o valor corretamente
-    const numericAmount = parseInputToNumber(amount);
-    
+    const numericAmount = parseInputToNumber(amount, user?.currency);
     if (numericAmount === 0) {
-      alert('Digite um valor válido');
+      Alert.alert('Erro', 'Por favor, digite um valor válido.');
+      return;
+    }
+
+    if (!category.trim()) {
+      Alert.alert('Erro', 'Por favor, selecione uma categoria.');
       return;
     }
 
     setIsSubmitting(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
 
     try {
       await onSave(transaction.id, {
         type,
         title: title.trim(),
         amount: numericAmount,
-        category: type === 'despesa' ? category.trim() : 'Receita',
+        category: category.trim(),
         date: new Date(date).toISOString(),
+        location: location.trim() || undefined,
       });
       onClose();
     } catch (error) {
-      alert('Erro ao salvar');
+      Alert.alert('Erro', 'Erro ao salvar transação.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const expenseCategories = [
-    'Alimentação', 'Transporte', 'Compras', 'Contas', 'Saúde', 'Educação', 'Lazer', 'Outros'
-  ];
+  const getCurrentCategories = () => {
+    const defaults = type === 'despesa'
+      ? [
+          { label: 'Alimentação', icon: 'food' },
+          { label: 'Transporte', icon: 'car' },
+          { label: 'Compras', icon: 'shopping' },
+          { label: 'Contas/Boletos', icon: 'receipt' },
+          { label: 'Saúde', icon: 'medical-bag' },
+          { label: 'Educação', icon: 'school' },
+          { label: 'Lazer', icon: 'movie' },
+          { label: 'Outros', icon: 'dots-horizontal' },
+        ]
+      : [
+          { label: 'Salário', icon: 'cash-multiple' },
+          { label: 'Freelance/Serviços', icon: 'briefcase' },
+          { label: 'Investimentos', icon: 'trending-up' },
+          { label: 'Presente/Prêmio', icon: 'gift' },
+          { label: 'Outros', icon: 'dots-horizontal' },
+        ];
+
+    const custom = (user?.customCategories || []).map((catName) => ({
+      label: catName,
+      icon: 'tag',
+    }));
+
+    return [...defaults, ...custom];
+  };
 
   if (!transaction) return null;
 
@@ -137,7 +170,7 @@ export default function EditTransactionModal({ visible, transaction, onClose, on
         <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
           <View style={styles.modalHeader}>
             <Text variant="headlineSmall" style={{ color: theme.colors.onSurface, fontWeight: 'bold' }}>
-              Editar Transação
+              Editar Lançamento
             </Text>
             <IconButton icon="close" size={24} iconColor={theme.colors.outline} onPress={onClose} />
           </View>
@@ -151,10 +184,16 @@ export default function EditTransactionModal({ visible, transaction, onClose, on
             <View style={styles.fieldContainer}>
               <SegmentedButtons
                 value={type}
-                onValueChange={(value) => setType(value as 'receita' | 'despesa')}
+                onValueChange={(value) => {
+                  setType(value as 'receita' | 'despesa');
+                  setCategory('');
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                }}
                 buttons={[
-                  { value: 'despesa', label: 'Despesa', style: { backgroundColor: type === 'despesa' ? '#ef4444' : undefined } },
-                  { value: 'receita', label: 'Receita', style: { backgroundColor: type === 'receita' ? '#10b981' : undefined } }
+                  { value: 'despesa', label: 'Despesa' },
+                  { value: 'receita', label: 'Receita' }
                 ]}
               />
             </View>
@@ -167,63 +206,53 @@ export default function EditTransactionModal({ visible, transaction, onClose, on
                 onChangeText={setTitle}
                 mode="outlined"
                 style={styles.input}
-                left={<TextInput.Icon icon="format-title" />}
+                left={<TextInput.Icon icon="format-title" color={theme.colors.primary} />}
+                activeOutlineColor={theme.colors.primary}
               />
             </View>
 
-            {/* Valor - CORRIGIDO */}
+            {/* Valor */}
             <View style={styles.fieldContainer}>
               <TextInput
-                label="Valor (R$)"
+                label={user?.currency === 'USD' ? "Valor ($)" : "Valor (R$)"}
                 value={amount}
                 onChangeText={handleAmountChange}
                 mode="outlined"
                 keyboardType="decimal-pad"
                 style={styles.input}
-                left={<TextInput.Icon icon="currency-brl" />}
-                placeholder="0,00"
+                left={<TextInput.Icon icon={user?.currency === 'USD' ? "currency-usd" : "currency-brl"} color={theme.colors.primary} />}
+                activeOutlineColor={theme.colors.primary}
               />
             </View>
 
-            {/* Categoria (apenas para despesas) */}
-            {type === 'despesa' && (
-              <View style={styles.fieldContainer}>
-                <Text variant="labelMedium" style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant, marginBottom: 8 }]}>
-                  Categoria
-                </Text>
-                <ScrollView 
-                  horizontal 
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.categoriesScroll}
-                  contentContainerStyle={styles.categoriesContainer}
-                >
-                  {expenseCategories.map((cat) => (
-                    <TouchableOpacity
-                      key={cat}
-                      onPress={() => setCategory(cat)}
-                      style={[
-                        styles.categoryChip,
-                        {
-                          backgroundColor: category === cat ? theme.colors.primary : theme.colors.surfaceVariant,
-                          borderColor: theme.colors.outline,
-                        }
-                      ]}
-                    >
-                      <Text variant="labelSmall" style={{ color: category === cat ? '#fff' : theme.colors.onSurface }}>
-                        {cat}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-                <TextInput
-                  label="Ou digite a categoria"
-                  value={category}
-                  onChangeText={setCategory}
-                  mode="outlined"
-                  style={[styles.input, { marginTop: 12 }]}
-                />
-              </View>
-            )}
+            {/* Combobox de Categoria */}
+            <View style={styles.fieldContainer}>
+              <TouchableOpacity onPress={() => setCategoryModalVisible(true)} activeOpacity={0.75}>
+                <View style={[styles.dropdownTrigger, { borderColor: theme.colors.outline + '40' }]}>
+                  <IconButton icon="tag-outline" size={24} iconColor={theme.colors.primary} style={styles.dropdownIcon} />
+                  <View style={styles.dropdownTextContainer}>
+                    <Text style={[styles.dropdownLabel, { color: theme.colors.onSurfaceVariant }]}>Categoria</Text>
+                    <Text style={[styles.dropdownValue, { color: category ? theme.colors.onSurface : theme.colors.outline }]}>
+                      {category || 'Selecione uma categoria'}
+                    </Text>
+                  </View>
+                  <IconButton icon="chevron-down" size={24} iconColor={theme.colors.outline} style={styles.dropdownArrow} />
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {/* Localização */}
+            <View style={styles.fieldContainer}>
+              <TextInput
+                label="Localização (Opcional)"
+                value={location}
+                onChangeText={setLocation}
+                mode="outlined"
+                style={styles.input}
+                left={<TextInput.Icon icon="map-marker-radius" color={theme.colors.primary} />}
+                activeOutlineColor={theme.colors.primary}
+              />
+            </View>
 
             {/* Data */}
             <View style={styles.fieldContainer}>
@@ -232,9 +261,10 @@ export default function EditTransactionModal({ visible, transaction, onClose, on
                 value={date}
                 onChangeText={setDate}
                 mode="outlined"
-                placeholder="2024-01-01"
+                placeholder="2026-01-01"
                 style={styles.input}
-                left={<TextInput.Icon icon="calendar" />}
+                left={<TextInput.Icon icon="calendar" color={theme.colors.primary} />}
+                activeOutlineColor={theme.colors.primary}
               />
             </View>
 
@@ -245,7 +275,7 @@ export default function EditTransactionModal({ visible, transaction, onClose, on
                 onPress={handleSave}
                 loading={isSubmitting}
                 disabled={isSubmitting}
-                style={styles.saveButton}
+                style={[styles.saveButton, { backgroundColor: type === 'despesa' ? '#ef4444' : '#10b981' }]}
                 contentStyle={styles.saveButtonContent}
               >
                 Salvar Alterações
@@ -254,6 +284,85 @@ export default function EditTransactionModal({ visible, transaction, onClose, on
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Modal Interno de Categoria */}
+      <Modal
+        visible={categoryModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCategoryModalVisible(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setCategoryModalVisible(false)}
+        >
+          <TouchableWithoutFeedback>
+            <View style={[styles.innerModalContent, { backgroundColor: theme.colors.surface }]}>
+              <View style={styles.modalHeader}>
+                <Text variant="titleLarge" style={styles.modalTitle}>Selecionar Categoria</Text>
+                <IconButton icon="close" size={24} iconColor={theme.colors.outline} onPress={() => setCategoryModalVisible(false)} />
+              </View>
+              
+              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                {getCurrentCategories().map((cat) => (
+                  <TouchableOpacity
+                    key={cat.label}
+                    onPress={() => {
+                      setCategory(cat.label);
+                      setCategoryModalVisible(false);
+                      if (Platform.OS !== 'web') {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
+                    }}
+                    style={[
+                      styles.categorySelectItem,
+                      category === cat.label && { backgroundColor: theme.colors.primary + '15' }
+                    ]}
+                  >
+                    <IconButton icon={cat.icon} size={22} iconColor={category === cat.label ? theme.colors.primary : theme.colors.outline} style={styles.categorySelectItemIcon} />
+                    <Text style={[styles.categorySelectItemText, category === cat.label && { color: theme.colors.primary, fontWeight: '700' }]}>
+                      {cat.label}
+                    </Text>
+                    {category === cat.label && (
+                      <IconButton icon="check" size={20} iconColor={theme.colors.primary} style={{ marginLeft: 'auto', margin: 0 }} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              
+              <Divider style={styles.modalDivider} />
+              
+              <View style={styles.customCategorySection}>
+                <Text variant="labelMedium" style={[styles.customCategoryLabel, { color: theme.colors.onSurfaceVariant }]}>Criar Categoria Personalizada</Text>
+                <View style={styles.customCategoryRow}>
+                  <TextInput
+                    placeholder="Ex: Viagens, Pet, Investimentos"
+                    value={newCustomCategory}
+                    onChangeText={setNewCustomCategory}
+                    mode="outlined"
+                    style={styles.customCategoryInput}
+                    dense
+                  />
+                  <Button
+                    mode="contained"
+                    onPress={async () => {
+                      if (!newCustomCategory.trim()) return;
+                      await addCustomCategory(newCustomCategory.trim());
+                      setCategory(newCustomCategory.trim());
+                      setNewCustomCategory('');
+                      setCategoryModalVisible(false);
+                    }}
+                    style={styles.customCategoryButton}
+                  >
+                    Adicionar
+                  </Button>
+                </View>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </TouchableOpacity>
+      </Modal>
     </Modal>
   );
 }
@@ -293,34 +402,107 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   fieldContainer: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   input: {
     backgroundColor: 'transparent',
   },
-  sectionLabel: {
-    fontWeight: '600',
-  },
-  categoriesScroll: {
-    flexGrow: 0,
-  },
-  categoriesContainer: {
-    flexDirection: 'row',
-    paddingBottom: 4,
-  },
-  categoryChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 24,
-    marginRight: 8,
-    borderWidth: 1,
-  },
   saveButton: {
     marginTop: 8,
-    borderRadius: 12,
-    paddingVertical: 4,
+    borderRadius: 14,
   },
   saveButtonContent: {
-    paddingVertical: 6,
+    paddingVertical: 10,
+  },
+
+  // Dropdown trigger
+  dropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    backgroundColor: 'transparent',
+  },
+  dropdownIcon: {
+    margin: 0,
+  },
+  dropdownTextContainer: {
+    flex: 1,
+    marginLeft: 4,
+  },
+  dropdownLabel: {
+    fontSize: 12,
+    opacity: 0.8,
+  },
+  dropdownValue: {
+    fontSize: 15,
+    marginTop: 1,
+  },
+  dropdownArrow: {
+    margin: 0,
+  },
+
+  // Inner modal category selection
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  innerModalContent: {
+    width: '100%',
+    maxHeight: '70%',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+  },
+  modalTitle: {
+    fontWeight: 'bold',
+  },
+  modalScroll: {
+    maxHeight: 250,
+  },
+  categorySelectItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    marginBottom: 6,
+  },
+  categorySelectItemIcon: {
+    margin: 0,
+    marginRight: 10,
+  },
+  categorySelectItemText: {
+    fontSize: 16,
+  },
+  modalDivider: {
+    marginVertical: 16,
+  },
+  customCategorySection: {
+    width: '100%',
+  },
+  customCategoryLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  customCategoryRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  customCategoryInput: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  customCategoryButton: {
+    borderRadius: 8,
+    height: 48,
+    justifyContent: 'center',
   },
 });

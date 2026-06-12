@@ -1,9 +1,17 @@
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { Provider as PaperProvider, MD3LightTheme, MD3DarkTheme } from 'react-native-paper';
-import { useColorScheme, View, ActivityIndicator, SafeAreaView } from 'react-native';
+import { useColorScheme, View, ActivityIndicator, SafeAreaView, Platform } from 'react-native';
 import { useAuthStore } from '../src/store/useAuthStore';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
+// Ouvinte do evento de instalação do PWA (para navegadores baseados no Chromium)
+if (Platform.OS === 'web' && typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    (window as any).deferredPrompt = e;
+  });
+}
 
 // Cores personalizadas para o tema (mantendo MD3 mas customizando)
 const lightTheme = {
@@ -79,6 +87,31 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PaperProvider theme={theme}>
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
+          {Platform.OS === 'web' && (
+            <style dangerouslySetInnerHTML={{ __html: `
+              /* Estilo de barra de rolagem customizada e moderna apenas para desktop/mouse */
+              @media (pointer: fine) {
+                ::-webkit-scrollbar {
+                  width: 8px;
+                  height: 8px;
+                }
+                ::-webkit-scrollbar-track {
+                  background: rgba(0,0,0,0.02);
+                  border-radius: 4px;
+                }
+                ::-webkit-scrollbar-thumb {
+                  background: ${theme.colors.primary}50;
+                  border-radius: 4px;
+                }
+                ::-webkit-scrollbar-thumb:hover {
+                  background: ${theme.colors.primary};
+                }
+              }
+              body {
+                background-color: ${theme.colors.background};
+              }
+            `}} />
+          )}
           <Stack
             screenOptions={{
               headerShown: false,

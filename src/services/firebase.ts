@@ -8,6 +8,8 @@ import {
   setPersistence,
   signInWithEmailAndPassword,
   signOut,
+  updatePassword,
+  deleteUser,
   type Auth,
   type User as FirebaseAuthUser,
 } from 'firebase/auth';
@@ -89,6 +91,12 @@ export type FirebaseUserProfile = {
   name: string;
   role: 'admin' | 'user';
   photoUrl?: string;
+  customCategories?: string[];
+  pushNotifications?: boolean;
+  weeklySummaries?: boolean;
+  expenseAlerts?: boolean;
+  language?: string;
+  currency?: string;
 };
 
 const defaultProfileFromAuth = (user: FirebaseAuthUser): FirebaseUserProfile => {
@@ -101,6 +109,11 @@ const defaultProfileFromAuth = (user: FirebaseAuthUser): FirebaseUserProfile => 
     email: user.email || '',
     name: isAdmin ? 'Administrador' : isDemoUser ? 'Usuário Padrão' : user.displayName || user.email?.split('@')[0] || 'Usuário',
     role: isAdmin ? 'admin' : 'user',
+    pushNotifications: true,
+    weeklySummaries: true,
+    expenseAlerts: true,
+    language: 'pt',
+    currency: 'BRL',
   };
 };
 
@@ -130,6 +143,12 @@ export const signInFirebaseUser = async (email: string, password: string): Promi
     name: data.name || fallbackProfile.name,
     role: data.role === 'admin' ? 'admin' : 'user',
     photoUrl: data.photoUrl,
+    customCategories: data.customCategories,
+    pushNotifications: data.pushNotifications ?? true,
+    weeklySummaries: data.weeklySummaries ?? true,
+    expenseAlerts: data.expenseAlerts ?? true,
+    language: data.language || 'pt',
+    currency: data.currency || 'BRL',
   };
 };
 
@@ -157,6 +176,12 @@ export const ensureFirebaseUserProfile = async (user: FirebaseAuthUser): Promise
     name: data.name || fallbackProfile.name,
     role: data.role === 'admin' ? 'admin' : 'user',
     photoUrl: data.photoUrl,
+    customCategories: data.customCategories,
+    pushNotifications: data.pushNotifications ?? true,
+    weeklySummaries: data.weeklySummaries ?? true,
+    expenseAlerts: data.expenseAlerts ?? true,
+    language: data.language || 'pt',
+    currency: data.currency || 'BRL',
   };
 };
 
@@ -167,7 +192,7 @@ export const observeFirebaseSession = (
   const auth = getFirebaseAuth();
   if (!auth) return null;
 
-  let unsubscribe = () => undefined;
+  let unsubscribe: () => void = () => {};
 
   unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
     if (!firebaseUser) {
@@ -225,6 +250,26 @@ export const updateFirebaseUserProfile = async (uid: string, updatedData: Partia
     ...updatedData,
     updatedAt: serverTimestamp(),
   }, { merge: true });
+};
+
+export const updateFirebaseUserPassword = async (newPassword: string): Promise<void> => {
+  const auth = getFirebaseAuth();
+  if (!auth || !auth.currentUser) {
+    throw new Error('Usuário não autenticado no Firebase');
+  }
+  await updatePassword(auth.currentUser, newPassword);
+};
+
+export const deleteFirebaseUser = async (uid: string): Promise<void> => {
+  const auth = getFirebaseAuth();
+  const db = getFirebaseFirestore();
+  if (!auth || !auth.currentUser) {
+    throw new Error('Usuário não autenticado no Firebase');
+  }
+  if (db) {
+    await deleteDoc(doc(db, 'users', uid));
+  }
+  await deleteUser(auth.currentUser);
 };
 
 export type StoredTransaction = {
