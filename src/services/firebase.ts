@@ -20,6 +20,8 @@ import {
   getDoc,
   getDocs,
   getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
   query,
   serverTimestamp,
   setDoc,
@@ -80,7 +82,14 @@ export const getFirebaseFirestore = (): Firestore | null => {
   const app = getFirebaseApp();
   if (!app) return null;
   if (!firebaseDb) {
-    firebaseDb = getFirestore(app);
+    try {
+      firebaseDb = initializeFirestore(app, {
+        localCache: persistentLocalCache()
+      });
+    } catch (e) {
+      console.warn('Erro ao inicializar persistência offline do Firestore. Usando configuração padrão.', e);
+      firebaseDb = getFirestore(app);
+    }
   }
   return firebaseDb;
 };
