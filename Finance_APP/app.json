@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "FinanceApp",
+    "slug": "finance-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "financeapp",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Precisamos da sua localização para registrar onde o gasto ocorreu.",
+        "NSCameraUsageDescription": "Precisamos da câmera para capturar os comprovantes."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "CAMERA"]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "static",
+      "pwa": {
+        "themeColor": "#6200ee",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-location",
+      "expo-image-picker"
+    ]
+  }
+}
