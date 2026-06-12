@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
   headerContainer: { position: 'relative', marginBottom: 50 },
   coverImage: { height: 160, width: '100%' },
   avatarContainer: { position: 'absolute', bottom: -55, alignSelf: 'center' },
-  avatar: { elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 4 },
+  avatar: { elevation: 6, boxShadow: '0px 3px 4px rgba(0,0,0,0.3)' },
   editIcon: { position: 'absolute', bottom: 2, right: 2 },
   userInfo: { alignItems: 'center', marginTop: 70, marginBottom: 28, paddingHorizontal: 20 },
   userName: { fontWeight: '700', fontSize: 26, marginBottom: 6 },

@@ -278,10 +278,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: 'hidden',
     elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    boxShadow: '0px 2px 8px rgba(0,0,0,0.25)',
   },
   modalHeader: {
     flexDirection: 'row',

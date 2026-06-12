@@ -112,10 +112,7 @@ export default function TabsLayout() {
           paddingBottom: Platform.OS === 'ios' ? 25 + insets.bottom : 10 + insets.bottom,
           paddingTop: 8,
           elevation: 8,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: -3 },
-          shadowOpacity: 0.08,
-          shadowRadius: 6,
+          boxShadow: '0px -3px 6px rgba(0,0,0,0.08)',
         },
         tabBarLabelStyle: {
           fontSize: 11,

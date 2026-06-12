@@ -23,7 +23,6 @@ import {
   type Firestore,
   where,
 } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject, type FirebaseStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -41,7 +40,6 @@ export const isFirebaseConfigured = Object.values(firebaseConfig).every(isDefine
 let firebaseApp: FirebaseApp | null = null;
 let firebaseAuth: Auth | null = null;
 let firebaseDb: Firestore | null = null;
-let firebaseStorage: FirebaseStorage | null = null;
 
 export const getFirebaseApp = (): FirebaseApp | null => {
   if (!isFirebaseConfigured) return null;
@@ -61,15 +59,12 @@ export const getFirebaseAuth = (): Auth | null => {
     return firebaseAuth;
   }
 
-  const { initializeAuth } = require('firebase/auth');
-  const nativeAuthModule = 'firebase/auth/react-native';
-  const asyncStorageModule = '@react-native-async-storage/async-storage';
-  const { getReactNativePersistence } = require(nativeAuthModule);
-  const AsyncStorage = require(asyncStorageModule).default;
+  const { initializeAuth, getReactNativePersistence } = require('firebase/auth');
+  const AsyncStorage = require('@react-native-async-storage/async-storage').default;
 
   try {
     firebaseAuth = initializeAuth(app, {
-      persistence: getReactNativePersistence(AsyncStorage),
+      persistence: getReactNativePersistence ? getReactNativePersistence(AsyncStorage) : undefined,
     });
   } catch {
     firebaseAuth = getAuth(app);
@@ -85,15 +80,6 @@ export const getFirebaseFirestore = (): Firestore | null => {
     firebaseDb = getFirestore(app);
   }
   return firebaseDb;
-};
-
-export const getFirebaseStorage = (): FirebaseStorage | null => {
-  const app = getFirebaseApp();
-  if (!app) return null;
-  if (!firebaseStorage) {
-    firebaseStorage = getStorage(app);
-  }
-  return firebaseStorage;
 };
 
 export type FirebaseUserProfile = {
@@ -213,24 +199,6 @@ export type StoredTransaction = {
   receiptStoragePath?: string;
 };
 
-const uploadReceipt = async (userId: string, uri: string): Promise<{ url: string; storagePath: string } | null> => {
-  const storage = getFirebaseStorage();
-  if (!storage) return null;
-
-  const response = await fetch(uri);
-  const blob = await response.blob();
-  const storagePath = `receipts/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
-  const storageRef = ref(storage, storagePath);
-  await uploadBytes(storageRef, blob, {
-    contentType: blob.type || 'image/jpeg',
-  });
-
-  return {
-    url: await getDownloadURL(storageRef),
-    storagePath,
-  };
-};
-
 export const firebaseTransactionApi = {
   async listTransactions(userId: string): Promise<StoredTransaction[]> {
     const db = getFirebaseFirestore();
@@ -257,21 +225,8 @@ export const firebaseTransactionApi = {
     const transactionsRef = collection(db, 'transactions');
     const createdDoc = doc(transactionsRef);
 
-    let receiptImageUri = transaction.receiptImageUri;
-    let receiptStoragePath = transaction.receiptStoragePath;
-
-    if (receiptImageUri) {
-      const uploadedReceipt = await uploadReceipt(transaction.userId, receiptImageUri);
-      if (uploadedReceipt) {
-        receiptImageUri = uploadedReceipt.url;
-        receiptStoragePath = uploadedReceipt.storagePath;
-      }
-    }
-
     const storedTransaction: StoredTransaction = {
       ...transaction,
-      receiptImageUri,
-      receiptStoragePath,
       id: createdDoc.id,
     };
 
@@ -302,15 +257,10 @@ export const firebaseTransactionApi = {
 
   async deleteTransaction(transaction: StoredTransaction): Promise<void> {
     const db = getFirebaseFirestore();
-    const storage = getFirebaseStorage();
     if (!db) {
       throw new Error('Firebase Firestore não está configurado');
     }
 
     await deleteDoc(doc(db, 'transactions', transaction.id));
-
-    if (storage && transaction.receiptStoragePath) {
-      await deleteObject(ref(storage, transaction.receiptStoragePath)).catch(() => undefined);
-    }
   },
 };

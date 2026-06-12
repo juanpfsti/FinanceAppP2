@@ -1,10 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ScrollView, StyleSheet, Image, View, TouchableOpacity, Animated, KeyboardAvoidingView, Platform, Alert, Linking } from 'react-native';
+import { ScrollView, StyleSheet, View, TouchableOpacity, Animated, KeyboardAvoidingView, Platform, Alert, Linking } from 'react-native';
 import { TextInput, Button, SegmentedButtons, Snackbar, useTheme, Text, IconButton, ActivityIndicator } from 'react-native-paper';
 import { useFinanceStore } from '../../src/store/useFinanceStore';
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { ViaCepService } from '../../src/services/api';
-import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -38,12 +37,10 @@ export default function AddTransaction() {
   const [category, setCategory] = useState('');
   const [cep, setCep] = useState('');
   const [location, setLocation] = useState('');
-  const [imageUri, setImageUri] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFetchingCep, setIsFetchingCep] = useState(false);
-  const [isPickingImage, setIsPickingImage] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
@@ -89,109 +86,6 @@ export default function AddTransaction() {
     }
   };
 
-  // Função para tirar foto - CORRIGIDA
-  const takePhoto = async () => {
-    setIsPickingImage(true);
-    
-    try {
-      // Solicitar permissão da câmera
-      const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
-      
-      if (!cameraPermission.granted) {
-        Alert.alert(
-          'Permissão Necessária',
-          'Precisamos da permissão da câmera para tirar fotos dos comprovantes.',
-          [
-            { text: 'Cancelar', style: 'cancel' },
-            { text: 'Abrir Configurações', onPress: () => Linking.openSettings() }
-          ]
-        );
-        setIsPickingImage(false);
-        return;
-      }
-      
-      // Abrir a câmera
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        quality: 0.8,
-        base64: false,
-      });
-      
-      setIsPickingImage(false);
-      
-      if (!result.canceled && result.assets && result.assets[0]) {
-        setImageUri(result.assets[0].uri);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Sucesso', 'Foto capturada com sucesso!');
-      }
-    } catch (error) {
-      setIsPickingImage(false);
-      console.error('Erro ao tirar foto:', error);
-      Alert.alert('Erro', 'Não foi possível abrir a câmera. Verifique as permissões.');
-    }
-  };
-
-  // Função para escolher da galeria - CORRIGIDA
-  const pickFromGallery = async () => {
-    setIsPickingImage(true);
-    
-    try {
-      // Solicitar permissão da galeria
-      const galleryPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (!galleryPermission.granted) {
-        Alert.alert(
-          'Permissão Necessária',
-          'Precisamos da permissão para acessar suas fotos.',
-          [
-            { text: 'Cancelar', style: 'cancel' },
-            { text: 'Abrir Configurações', onPress: () => Linking.openSettings() }
-          ]
-        );
-        setIsPickingImage(false);
-        return;
-      }
-      
-      // Abrir a galeria
-      const result = await ImagePicker.launchImageLibraryAsync({
-        allowsEditing: true,
-        quality: 0.8,
-        base64: false,
-      });
-      
-      setIsPickingImage(false);
-      
-      if (!result.canceled && result.assets && result.assets[0]) {
-        setImageUri(result.assets[0].uri);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Sucesso', 'Imagem selecionada com sucesso!');
-      }
-    } catch (error) {
-      setIsPickingImage(false);
-      console.error('Erro ao acessar galeria:', error);
-      Alert.alert('Erro', 'Não foi possível acessar a galeria.');
-    }
-  };
-
-  // Menu de opções para adicionar imagem
-  const handleAddImage = () => {
-    Alert.alert(
-      'Adicionar Comprovante',
-      'Como você quer adicionar o comprovante?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: '📷 Tirar Foto', onPress: takePhoto },
-        { text: '🖼️ Escolher da Galeria', onPress: pickFromGallery }
-      ],
-      { cancelable: true }
-    );
-  };
-
-  const removeImage = () => {
-    setImageUri(null);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
   const validateForm = (): boolean => {
     if (!title.trim()) {
       Alert.alert('Erro', 'Digite um título');
@@ -223,7 +117,6 @@ export default function AddTransaction() {
         category: type === 'expense' ? category.trim() : 'Receita',
         date: new Date().toISOString(),
         location: location.trim() || undefined,
-        receiptImageUri: imageUri || undefined
       });
 
       setSnackbarMessage(type === 'expense' ? 'Despesa salva com sucesso' : 'Receita salva com sucesso');
@@ -234,7 +127,6 @@ export default function AddTransaction() {
       setCategory('');
       setCep('');
       setLocation('');
-      setImageUri(null);
       
       setTimeout(() => router.push('/(tabs)/'), 1500);
     } catch (error) {
@@ -434,36 +326,6 @@ export default function AddTransaction() {
             />
           </View>
 
-          {/* Comprovante - CORRIGIDO */}
-          <View style={styles.sectionCard}>
-            <Text variant="labelMedium" style={[styles.sectionTitle, { color: theme.colors.onSurfaceVariant }]}>
-              Comprovante (opcional)
-            </Text>
-            
-            <TouchableOpacity onPress={handleAddImage} activeOpacity={0.7} disabled={isPickingImage}>
-              <View style={[styles.imageButtonContainer, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline }]}>
-                {isPickingImage ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : (
-                  <>
-                    <IconButton icon="camera" size={28} iconColor={theme.colors.primary} />
-                    <Text variant="bodyMedium" style={{ color: theme.colors.primary, marginLeft: 8 }}>
-                      Adicionar Comprovante
-                    </Text>
-                  </>
-                )}
-              </View>
-            </TouchableOpacity>
-
-            {imageUri && (
-              <View style={styles.imagePreviewContainer}>
-                <Image source={{ uri: imageUri }} style={styles.imagePreview} />
-                <TouchableOpacity onPress={removeImage} style={styles.removeImageButton}>
-                  <IconButton icon="close-circle" size={28} iconColor={theme.colors.error} />
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
 
           {/* Botão Salvar */}
           <Button
@@ -588,34 +450,6 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 12,
     paddingHorizontal: 16,
-  },
-  imageButtonContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    paddingVertical: 16,
-    marginBottom: 16,
-  },
-  imagePreviewContainer: { 
-    position: 'relative', 
-    marginBottom: 16,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  imagePreview: { 
-    width: '100%', 
-    height: 200, 
-    borderRadius: 16,
-  },
-  removeImageButton: { 
-    position: 'absolute', 
-    top: 8, 
-    right: 8,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 20,
   },
   saveButton: { 
     marginTop: 8, 
