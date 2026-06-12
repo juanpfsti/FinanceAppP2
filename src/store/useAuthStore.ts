@@ -5,6 +5,7 @@ import {
   observeFirebaseSession,
   signInFirebaseUser,
   signOutFirebaseUser,
+  signUpFirebaseUser,
 } from '../services/firebase';
 
 export type Role = 'admin' | 'user';
@@ -20,6 +21,7 @@ interface AuthState {
   user: User | null;
   isLoading: boolean;
   login: (email: string, pass: string) => Promise<boolean>;
+  signUp: (email: string, pass: string, name: string) => Promise<boolean>;
   logout: () => Promise<void>;
   checkSession: () => Promise<void>;
 }
@@ -33,7 +35,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       try {
         const profile = await signInFirebaseUser(email, pass);
         if (profile) {
-          set({ user: profile, isLoading: false });
+          set({ user: profile as User, isLoading: false });
           return true;
         }
       } catch (error) {
@@ -57,6 +59,27 @@ export const useAuthStore = create<AuthState>((set) => ({
       return true;
     }
     return false;
+  },
+
+  signUp: async (email, pass, name) => {
+    if (isFirebaseConfigured) {
+      try {
+        const profile = await signUpFirebaseUser(email, pass, name);
+        if (profile) {
+          set({ user: profile as User, isLoading: false });
+          return true;
+        }
+      } catch (error) {
+        console.error('Erro ao cadastrar no Firebase', error);
+        throw error;
+      }
+      return false;
+    }
+
+    const mockUser: User = { id: Date.now().toString(), email, name, role: 'user' };
+    await Storage.setItem('@session', JSON.stringify(mockUser));
+    set({ user: mockUser });
+    return true;
   },
 
   logout: async () => {

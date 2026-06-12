@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import { initializeApp, getApp, getApps, type FirebaseApp } from 'firebase/app';
 import {
   browserLocalPersistence,
+  createUserWithEmailAndPassword,
   getAuth,
   onAuthStateChanged,
   setPersistence,
@@ -184,6 +185,33 @@ export const signOutFirebaseUser = async (): Promise<void> => {
   const auth = getFirebaseAuth();
   if (!auth) return;
   await signOut(auth);
+};
+
+export const signUpFirebaseUser = async (
+  email: string,
+  password: string,
+  name: string,
+): Promise<FirebaseUserProfile | null> => {
+  const auth = getFirebaseAuth();
+  const db = getFirebaseFirestore();
+  if (!auth || !db) return null;
+
+  const credential = await createUserWithEmailAndPassword(auth, email, password);
+  const profile: FirebaseUserProfile = {
+    id: credential.user.uid,
+    email: email.toLowerCase(),
+    name: name,
+    role: 'user',
+  };
+
+  const profileRef = doc(db, 'users', credential.user.uid);
+  await setDoc(profileRef, {
+    ...profile,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  return profile;
 };
 
 export type StoredTransaction = {
