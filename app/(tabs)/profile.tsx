@@ -6,9 +6,10 @@ import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
 
 export default function Profile() {
-  const { user, logout } = useAuthStore();
+  const { user, logout, updateProfile } = useAuthStore();
   const router = useRouter();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -24,6 +25,40 @@ export default function Profile() {
       Animated.spring(scaleAnim, { toValue: 1, friction: 8, tension: 40, useNativeDriver: true }),
     ]).start();
   }, []);
+
+  const handlePickPhoto = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    try {
+      // 1. Solicitar permissão para acesso à galeria
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permissão necessária',
+          'Precisamos de permissão para acessar suas fotos para alterar a imagem de perfil.'
+        );
+        return;
+      }
+
+      // 2. Abrir o seletor de imagens
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.3, // Comprime bastante para manter o base64 leve e sob o limite do Firestore (1MB)
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets?.[0]?.base64) {
+        const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        await updateProfile({ photoUrl: base64Image });
+        Alert.alert('Sucesso', 'Foto de perfil atualizada com sucesso!');
+      }
+    } catch (error) {
+      console.error('Erro ao escolher imagem:', error);
+      Alert.alert('Erro', 'Ocorreu um erro ao atualizar sua foto de perfil.');
+    }
+  };
 
   const handleLogout = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -79,9 +114,15 @@ export default function Profile() {
         <View style={styles.headerContainer}>
           <LinearGradient colors={[theme.colors.primary, theme.colors.primary + 'CC']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.coverImage} />
           <Animated.View style={[styles.avatarContainer, { transform: [{ scale: scaleAnim }] }]}>
-            <Avatar.Text size={110} label={getUserInitial()} style={[styles.avatar, { backgroundColor: theme.colors.surface }]} labelStyle={{ fontSize: 42, color: theme.colors.primary }} />
-            <TouchableOpacity onPress={handleEditProfile} style={styles.editIcon}>
-              <IconButton icon="pencil" size={20} iconColor="#fff" style={{ backgroundColor: theme.colors.primary, margin: 0 }} onPress={handleEditProfile} />
+            <TouchableOpacity onPress={handlePickPhoto} activeOpacity={0.85}>
+              {user?.photoUrl ? (
+                <Avatar.Image size={110} source={{ uri: user.photoUrl }} style={[styles.avatar, { backgroundColor: theme.colors.surface }]} />
+              ) : (
+                <Avatar.Text size={110} label={getUserInitial()} style={[styles.avatar, { backgroundColor: theme.colors.surface }]} labelStyle={{ fontSize: 42, color: theme.colors.primary }} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handlePickPhoto} style={styles.editIcon}>
+              <IconButton icon="camera" size={20} iconColor="#fff" style={{ backgroundColor: theme.colors.primary, margin: 0 }} onPress={handlePickPhoto} />
             </TouchableOpacity>
           </Animated.View>
         </View>

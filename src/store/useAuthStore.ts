@@ -6,6 +6,7 @@ import {
   signInFirebaseUser,
   signOutFirebaseUser,
   signUpFirebaseUser,
+  updateFirebaseUserProfile,
 } from '../services/firebase';
 
 export type Role = 'admin' | 'user';
@@ -15,6 +16,7 @@ export interface User {
   email: string;
   name: string;
   role: Role;
+  photoUrl?: string;
 }
 
 interface AuthState {
@@ -24,9 +26,10 @@ interface AuthState {
   signUp: (email: string, pass: string, name: string) => Promise<boolean>;
   logout: () => Promise<void>;
   checkSession: () => Promise<void>;
+  updateProfile: (updatedData: Partial<User>) => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isLoading: true,
 
@@ -80,6 +83,20 @@ export const useAuthStore = create<AuthState>((set) => ({
     await Storage.setItem('@session', JSON.stringify(mockUser));
     set({ user: mockUser });
     return true;
+  },
+
+  updateProfile: async (updatedData) => {
+    const currentUser = get().user;
+    if (!currentUser) return;
+
+    const newUser = { ...currentUser, ...updatedData };
+    set({ user: newUser });
+
+    if (isFirebaseConfigured) {
+      await updateFirebaseUserProfile(currentUser.id, updatedData);
+    } else {
+      await Storage.setItem('@session', JSON.stringify(newUser));
+    }
   },
 
   logout: async () => {

@@ -88,6 +88,7 @@ export type FirebaseUserProfile = {
   email: string;
   name: string;
   role: 'admin' | 'user';
+  photoUrl?: string;
 };
 
 const defaultProfileFromAuth = (user: FirebaseAuthUser): FirebaseUserProfile => {
@@ -128,6 +129,7 @@ export const signInFirebaseUser = async (email: string, password: string): Promi
     email: data.email || credential.user.email || '',
     name: data.name || fallbackProfile.name,
     role: data.role === 'admin' ? 'admin' : 'user',
+    photoUrl: data.photoUrl,
   };
 };
 
@@ -154,6 +156,7 @@ export const ensureFirebaseUserProfile = async (user: FirebaseAuthUser): Promise
     email: data.email || user.email || '',
     name: data.name || fallbackProfile.name,
     role: data.role === 'admin' ? 'admin' : 'user',
+    photoUrl: data.photoUrl,
   };
 };
 
@@ -212,6 +215,16 @@ export const signUpFirebaseUser = async (
   });
 
   return profile;
+};
+
+export const updateFirebaseUserProfile = async (uid: string, updatedData: Partial<FirebaseUserProfile>): Promise<void> => {
+  const db = getFirebaseFirestore();
+  if (!db) return;
+  const profileRef = doc(db, 'users', uid);
+  await setDoc(profileRef, {
+    ...updatedData,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
 };
 
 export type StoredTransaction = {

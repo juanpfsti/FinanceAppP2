@@ -10,6 +10,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   const { login, signUp } = useAuthStore();
   const theme = useTheme();
@@ -33,8 +34,9 @@ export default function LoginScreen() {
   };
 
   const handleAuth = async () => {
+    setErrorMsg(null);
     if (!email || !password || (isSignUp && !name)) {
-      Alert.alert('Erro', 'Por favor, preencha todos os campos obrigatórios.');
+      setErrorMsg('Por favor, preencha todos os campos obrigatórios.');
       return;
     }
 
@@ -45,13 +47,12 @@ export default function LoginScreen() {
         if (success) {
           Alert.alert('Sucesso', 'Cadastro realizado com sucesso!');
         } else {
-          Alert.alert('Erro', 'Não foi possível concluir o cadastro.');
+          setErrorMsg('Não foi possível concluir o cadastro.');
         }
       } else {
         const success = await login(email, password);
         if (!success) {
-          Alert.alert(
-            'Erro',
+          setErrorMsg(
             isFirebaseConfigured
               ? 'Credenciais inválidas ou usuário não cadastrado no Firebase Auth.'
               : 'Credenciais inválidas. Tente admin@demo.com / Admin123'
@@ -59,7 +60,7 @@ export default function LoginScreen() {
         }
       }
     } catch (error: any) {
-      Alert.alert('Erro', getFirebaseErrorMessage(error));
+      setErrorMsg(getFirebaseErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
@@ -78,12 +79,18 @@ export default function LoginScreen() {
           <Text variant="bodyMedium" style={styles.subtitle}>
             {isSignUp ? 'Registre-se para gerenciar suas finanças' : 'Acesse sua conta para continuar'}
           </Text>
+
+          {errorMsg && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{errorMsg}</Text>
+            </View>
+          )}
           
           {isSignUp && (
             <TextInput
               label="Nome Completo"
               value={name}
-              onChangeText={setName}
+              onChangeText={(text) => { setName(text); setErrorMsg(null); }}
               mode="outlined"
               autoCapitalize="words"
               style={styles.input}
@@ -95,7 +102,7 @@ export default function LoginScreen() {
           <TextInput
             label="E-mail"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(text) => { setEmail(text); setErrorMsg(null); }}
             mode="outlined"
             keyboardType="email-address"
             autoCapitalize="none"
@@ -107,7 +114,7 @@ export default function LoginScreen() {
           <TextInput
             label="Senha"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(text) => { setPassword(text); setErrorMsg(null); }}
             mode="outlined"
             secureTextEntry
             style={styles.input}
@@ -133,6 +140,7 @@ export default function LoginScreen() {
               setName('');
               setEmail('');
               setPassword('');
+              setErrorMsg(null);
             }}
             disabled={isLoading}
             style={styles.toggleButton}
@@ -195,5 +203,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.5,
     fontSize: 12,
+  },
+  errorContainer: {
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderColor: '#ef4444',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    width: '100%',
+  },
+  errorText: {
+    color: '#ef4444',
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '500',
   }
 });
